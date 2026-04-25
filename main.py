@@ -1,113 +1,195 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-import random
-import string
+import requests
+import json
+import os
+from datetime import datetime
 
-class PasswordGenerator:
+class CurrencyConverter:
     def __init__(self, root):
         self.root = root
-        self.root.title("Генератор паролей")
-        self.root.geometry("400x250")
+        self.root.title("Конвертер валют")
+        self.root.geometry("600x500")
 
-        # Переменная для длины пароля
-        self.length = tk.IntVar(value=12)
-        # Переменные для выбора состава пароля
-        self.use_letters = tk.BooleanVar(value=True)
-        self.use_digits = tk.BooleanVar(value=False)
-        self.use_symbols = tk.BooleanVar(value=False)
+        # API ключ (замените на ваш)
+        self.api_key = "YOUR_API_KEY"  # Получите на exchangerate-api.com
+        self.base_url = "https://api.exchangerate-api.com/v4/latest/"
+
+        # Файл для хранения истории
+        self.history_file = "history.json"
+
+        # Загрузка истории из JSON
+        self.history = self.load_history_from_json()
 
         self.setup_ui()
+        self.load_currencies()
 
     def setup_ui(self):
-        # Поле для выбора длины
-        ttk.Label(self.root, text="Длина пароля:").pack(pady=5)
-        length_scale = ttk.Scale(
+        """Создание интерфейса"""
+        # Заголовок
+        ttk.Label(self.root, text="Конвертер валют", font=("Arial", 16)).pack(pady=10)
+
+        # Выбор валют
+        frame_currencies = ttk.Frame(self.root)
+        frame_currencies.pack(pady=5)
+
+        ttk.Label(frame_currencies, text="Из:").grid(row=0, column=0)
+        self.from_currency = ttk.Combobox(frame_currencies, width=10)
+        self.from_currency.grid(row=0, column=1, padx=5)
+
+        ttk.Label(frame_currencies, text="В:").grid(row=0, column=2)
+        self.to_currency = ttk.Combobox(frame_currencies, width=10)
+        self.to_currency.grid(row=0, column=3, padx=5)
+
+        # Поле ввода суммы
+        frame_amount = ttk.Frame(self.root)
+        frame_amount.pack(pady=5)
+        ttk.Label(frame_amount, text="Сумма:").pack(side="left")
+        self.amount_entry = ttk.Entry(frame_amount, width=20)
+        self.amount_entry.pack(side="left", padx=5)
+
+        # Кнопка конвертации
+        convert_btn = ttk.Button(
             self.root,
-            from_=4,
-            to=64,
-            orient="horizontal",
-            variable=self.length
+            text="Конвертировать",
+            command=self.convert_currency
         )
-        length_scale.pack(fill="x", padx=20)
-        self.length_label = ttk.Label(self.root, text=f"{self.length.get()} символов")
-        self.length_label.pack()
+        convert_btn.pack(pady=10)
 
-        # Обновление метки при движении ползунка
-        length_scale.config(command=self.update_length_label)
+        # Результат
+        self.result_label = ttk.Label(self.root, text="", font=("Arial", 12))
+        self.result_label.pack(pady=5)
 
-        # Флажки для выбора состава
-        ttk.Checkbutton(
-            self.root,
-            text="Буквы (a-z, A-Z)",
-            variable=self.use_letters
-        ).pack(anchor="w", padx=20)
-        ttk.Checkbutton(
-            self.root,
-            text="Цифры (0-9)",
-            variable=self.use_digits
-        ).pack(anchor="w", padx=20)
-        ttk.Checkbutton(
-            self.root,
-            text="Специальные символы (!@#$% и т.д.)",
-            variable=self.use_symbols
-        ).pack(anchor="w", padx=20)
+        # История конвертаций
+        ttk.Label(self.root, text="История конвертаций:").pack()
+        columns = ("Дата", "Сумма", "Из", "В", "Результат")
+        self.history_tree = ttk.Treeview(self.root, columns=columns, show="headings", height=10)
 
-        # Кнопка генерации
-        generate_btn = ttk.Button(
-            self.root,
-            text="Сгенерировать",
-            command=self.generate_password
-        )
-        generate_btn.pack(pady=10)
+        # Настройка колонок
+        for col in columns:
+            self.history_tree.heading(col, text=col)
+            self.history_tree.column(col, width=100)
+        self.history_tree.pack(fill="both", expand=True, padx=20, pady=5)
 
-        # Поле вывода пароля
-        self.password_var = tk.StringVar()
-        password_entry = ttk.Entry(
-            self.root,
-            textvariable=self.password_var,
-            state="readonly",
-            font=("Courier", 10)
-        )
-        password_entry.pack(fill="x", padx=20, pady=5)
+        # Обновление отображения истории
+        self.update_history_display()
 
-        # Кнопка копирования
-        copy_btn = ttk.Button(
-            self.root,
-            text="Копировать в буфер обмена",
-            command=self.copy_to_clipboard
-        )
-        copy_btn.pack(pady=5)
+    def load_currencies(self):
+        """Загрузка списка валют с API"""
+        try:
+            response = requests.get(f"{self.base_url}USD")
+            data = response.json()
+            currencies = sorted(data['rates'].keys())
+            self.from_currency['values'] = currencies
+            self.to_currency['values'] = currencies
 
-    def update_length_label(self, value):
-        self.length_label.config(text=f"{int(float(value))} символов")
+            # Установка значений по умолчанию
+            self.from_currency.set("USD")
+            self.to_currency.set("EUR")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить валюты: {e}")
 
-    def generate_password(self):
-        # Формирование набора символов
-        chars = ""
-        if self.use_letters.get():
-            chars += string.ascii_letters
-        if self.use_digits.get():
-            chars += string.digits
-        if self.use_symbols.get():
-            chars += "!@#$%^&*()_+-=[]{}|;:,.<>?"
+    def convert_currency(self):
+        """Конвертация валюты и сохранение в историю"""
+        try:
+            # Проверка и преобразование суммы
+            amount_str = self.amount_entry.get().strip()
+            if not amount_str:
+                messagebox.showerror("Ошибка", "Введите сумму для конвертации!")
+                return
 
-        if not chars:
-            messagebox.showwarning("Ошибка", "Выберите хотя бы один тип символов!")
-            return
+            amount = float(amount_str)
+            if amount <= 0:
+                messagebox.showerror("Ошибка", "Сумма должна быть положительным числом!")
+                return
 
-        # Генерация пароля
-        password = ''.join(random.choice(chars) for _ in range(self.length.get()))
-        self.password_var.set(password)
+            from_curr = self.from_currency.get()
+            to_curr = self.to_currency.get()
 
-    def copy_to_clipboard(self):
-        password = self.password_var.get()
-        if password:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(password)
-            messagebox.showinfo("Успех", "Пароль скопирован в буфер обмена!")
+            if not from_curr or not to_curr:
+                messagebox.showerror("Ошибка", "Выберите валюты для конвертации!")
+                return
+
+            # Получение курса через API
+            response = requests.get(f"{self.base_url}{from_curr}")
+            data = response.json()
+
+            if to_curr in data['rates']:
+                rate = data['rates'][to_curr]
+                result = amount * rate
+
+                # Отображение результата
+                self.result_label.config(
+                    text=f"{amount:.2f} {from_curr} = {result:.2f} {to_curr}"
+                )
+
+                # Создание записи для истории
+                history_entry = {
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "amount": round(amount, 2),
+            "from": from_curr,
+            "to": to_curr,
+            "rate": round(rate, 6),
+            "result": round(result, 2)
+                }
+
+                # Добавление в историю и сохранение в JSON
+                self.history.append(history_entry)
+                self.save_history_to_json()
+                self.update_history_display()
+            else:
+                messagebox.showerror("Ошибка", "Неизвестный код валюты!")
+        except ValueError:
+            messagebox.showerror("Ошибка", "Введите корректное число в поле суммы!")
+        except requests.exceptions.RequestException:
+            messagebox.showerror("Ошибка", "Нет подключения к интернету или проблема с API!")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Произошла ошибка: {e}")
+
+    def load_history_from_json(self):
+        """Загрузка истории из JSON-файла"""
+        if os.path.exists(self.history_file):
+            try:
+                with open(self.history_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                messagebox.showwarning("Предупреждение", f"Не удалось загрузить историю: {e}. Создаётся новая история.")
+                return []
+        else:
+            # Создаём пустой файл истории, если его нет
+            self.save_history_to_json([])
+            return []
+
+    def save_history_to_json(self):
+        """Сохранение истории в JSON-файл"""
+        try:
+            with open(self.history_file, "w", encoding="utf-8") as f:
+                json.dump(self.history, f, ensure_ascii=False, indent=2)
+        except IOError as e:
+            messagebox.showerror("Ошибка", f"Не удалось сохранить историю: {e}")
+
+    def update_history_display(self):
+        """Обновление отображения истории в таблице"""
+        # Очистка текущей таблицы
+        for item in self.history_tree.get_children():
+            self.history_tree.delete(item)
+
+        # Отображение последних 10 записей (самые новые сверху)
+        recent_history = self.history[-10:] if len(self.history) > 10 else self.history
+
+        for entry in reversed(recent_history):
+            self.history_tree.insert(
+                "", "end",
+                values=(
+                    entry["date"],
+                    f"{entry['amount']:.2f}",
+                    entry["from"],
+                    entry["to"],
+                    f"{entry['result']:.2f}"
+                )
+            )
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = PasswordGenerator(root)
+    app = CurrencyConverter(root)
     root.mainloop()
-
