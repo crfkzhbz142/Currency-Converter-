@@ -13,10 +13,12 @@ class CurrencyConverter:
 
         # API ключ (замените на ваш)
         self.api_key = "YOUR_API_KEY"  # Получите на exchangerate-api.com
-        self.base_url = "https://api.exchangerate-api.com/v4/latest/"
+        self.base_url = f"https://v6.exchangerate-api.com/v6/{self.api_key}/latest/"
+
 
         # Файл для хранения истории
         self.history_file = "history.json"
+
 
         # Загрузка истории из JSON
         self.history = self.load_history_from_json()
@@ -71,6 +73,7 @@ class CurrencyConverter:
             self.history_tree.column(col, width=100)
         self.history_tree.pack(fill="both", expand=True, padx=20, pady=5)
 
+
         # Обновление отображения истории
         self.update_history_display()
 
@@ -78,14 +81,28 @@ class CurrencyConverter:
         """Загрузка списка валют с API"""
         try:
             response = requests.get(f"{self.base_url}USD")
+            # Проверка HTTP-статуса
+            if response.status_code != 200:
+                messagebox.showerror("Ошибка", f"Ошибка API: {response.status_code}")
+                return
+
             data = response.json()
-            currencies = sorted(data['rates'].keys())
+            currencies = sorted(data['conversion_rates'].keys())
             self.from_currency['values'] = currencies
             self.to_currency['values'] = currencies
 
             # Установка значений по умолчанию
-            self.from_currency.set("USD")
-            self.to_currency.set("EUR")
+            if 'USD' in currencies:
+                self.from_currency.set("USD")
+            else:
+                self.from_currency.set(currencies[0])
+
+            if 'EUR' in currencies:
+                self.to_currency.set("EUR")
+            else:
+                self.to_currency.set(currencies[1] if len(currencies) > 1 else currencies[0])
+        except requests.exceptions.RequestException as e:
+            messagebox.showerror("Ошибка", f"Проблема с подключением к API: {e}")
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось загрузить валюты: {e}")
 
@@ -112,10 +129,15 @@ class CurrencyConverter:
 
             # Получение курса через API
             response = requests.get(f"{self.base_url}{from_curr}")
+            # Проверка HTTP-статуса
+            if response.status_code != 200:
+                messagebox.showerror("Ошибка", f"Ошибка API: {response.status_code}")
+                return
+
             data = response.json()
 
-            if to_curr in data['rates']:
-                rate = data['rates'][to_curr]
+            if to_curr in data['conversion_rates']:
+                rate = data['conversion_rates'][to_curr]
                 result = amount * rate
 
                 # Отображение результата
@@ -123,19 +145,20 @@ class CurrencyConverter:
                     text=f"{amount:.2f} {from_curr} = {result:.2f} {to_curr}"
                 )
 
+
                 # Создание записи для истории
                 history_entry = {
                     "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "amount": round(amount, 2),
-            "from": from_curr,
-            "to": to_curr,
+                    "amount": round(amount, 2),
+                    "from": from_curr,
+                    "to": to_curr,
             "rate": round(rate, 6),
             "result": round(result, 2)
                 }
 
                 # Добавление в историю и сохранение в JSON
                 self.history.append(history_entry)
-                self.save_history_to_json()
+                self.save_history_to_json()  # Вызов без аргументов
                 self.update_history_display()
             else:
                 messagebox.showerror("Ошибка", "Неизвестный код валюты!")
@@ -157,7 +180,7 @@ class CurrencyConverter:
                 return []
         else:
             # Создаём пустой файл истории, если его нет
-            self.save_history_to_json([])
+            self.save_history_to_json()  # Вызов без аргументов
             return []
 
     def save_history_to_json(self):
@@ -171,25 +194,4 @@ class CurrencyConverter:
     def update_history_display(self):
         """Обновление отображения истории в таблице"""
         # Очистка текущей таблицы
-        for item in self.history_tree.get_children():
-            self.history_tree.delete(item)
-
-        # Отображение последних 10 записей (самые новые сверху)
-        recent_history = self.history[-10:] if len(self.history) > 10 else self.history
-
-        for entry in reversed(recent_history):
-            self.history_tree.insert(
-                "", "end",
-                values=(
-                    entry["date"],
-                    f"{entry['amount']:.2f}",
-                    entry["from"],
-                    entry["to"],
-                    f"{entry['result']:.2f}"
-                )
-            )
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = CurrencyConverter(root)
-    root.mainloop()
+        for item in self.history
